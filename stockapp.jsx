@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const DRIVER_STYLES = {
   VOLUME_SURGE: {
@@ -32,43 +32,148 @@ export default function App() {
   const [stocks, setStocks] = useState([]);
   const [filter, setFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
-
-  const fetchMarketData = async () => {
-    setLoading(true);
+  const [tickerInput, setTickerInput] = useState('');
+  const [customTickers, setCustomTickers] = useState(() => {
     try {
-      const res = await fetch('http://localhost:8000/api/interesting-stocks');
-      const data = await res.json();
-      setStocks(data.stocks || []);
-    } catch (err) {
-      console.error('Failed to fetch scanner data:', err);
-    } finally {
-      setLoading(false);
+      const saved = localStorage.getItem('custom_scanner_tickers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-  };
+  });
+  const [cacheInfo, setCacheInfo] = useState({ cached: false, age: 0 });
+
+  // Persist custom tickers to localStorage
+  useEffect(() => {
+    localStorage.setItem('custom_scanner_tickers', JSON.stringify(customTickers));
+  }, [customTickers]);
+
+  const fetchMarketData = useCallback(
+    async (forceRefresh = false) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (customTickers.length > 0) {
+          params.set('custom', customTickers.join(','));
+        }
+        if (forceRefresh) {
+          params.set('force_refresh', 'true');
+        }
+
+        const res = await fetch(
+          `http://localhost:8000/api/interesting-stocks?${params.toString()}`
+        );
+        const data = await res.json();
+        setStocks(data.stocks || []);
+        setCacheInfo({
+          cached: Boolean(data.cached),
+          age: data.cache_age_sec || 0,
+        });
+      } catch (err) {
+        console.error('Failed to fetch scanner data:', err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [customTickers]
+  );
 
   useEffect(() => {
-    fetchMarketData();
-  }, []);
+    fetchMarketData(false);
+  }, [fetchMarketData]);
+
+  const handleAddTicker = (e) => {
+    e.preventDefault();
+    const cleaned = tickerInput.toUpperCase().replace(/[^A-Z]/g, '');
+    if (cleaned && cleaned.length <= 5 && !customTickers.includes(cleaned)) {
+      setCustomTickers((prev) => [...prev, cleaned]);
+    }
+    setTickerInput('');
+  };
+
+  const handleRemoveTicker = (symbolToRemove) => {
+    setCustomTickers((prev) => prev.filter((sym) => sym !== symbolToRemove));
+  };
 
   const filteredStocks =
-    filter === 'ALL' ? stocks : stocks.filter((s) => s.driver_type === filter);
+    filter === 'ALL'
+      ? stocks
+      : filter === 'PINNED'
+      ? stocks.filter((s) => s.is_custom)
+      : stocks.filter((s) => s.driver_type === filter);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-sans">
       <div className="max-w-6xl mx-auto">
-        {/* Header & Controls */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6 mb-6">
+        {/* Top Header */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-6 mb-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Market Anomaly & Sentiment Radar
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">
+                Market Anomaly & Sentiment Radar
+              </h1>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400">
+                {cacheInfo.cached ? `Cached (${cacheInfo.age}s ago)` : 'Live Scan'}
+              </span>
+            </div>
             <p className="text-sm text-slate-400 mt-1">
-              Ranked by Relative Volume (RVOL), RSI-14 Extremes, and Headline Polarity
+              Auto-discovering active movers + custom watchlist ranked by RVOL, RSI-14, and News Polarity
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {['ALL', 'VOLUME_SURGE', 'OVERSOLD', 'OVERBOUGHT', 'NEWS_CATALYST'].map((type) => (
+          {/* Custom Ticker Injection Form */}
+          <form onSubmit={handleAddTicker} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={tickerInput}
+              onChange={(e) => setTickerInput(e.target.value)}
+              placeholder="Inject ticker (e.g. PLTR)"
+              maxLength={5}
+              className="bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase font-mono w-48"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition"
+            >
+              + Track
+            </button>
+            <button
+              type="button"
+              onClick={() => fetchMarketData(true)}
+              title="Bypass 60s cache and fetch fresh prices"
+              className="px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+            >
+              ↻ Force Live
+            </button>
+          </form>
+        </header>
+
+        {/* Active Custom Ticker Pills */}
+        {customTickers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-5 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+            <span className="text-xs text-slate-400 font-medium mr-1">Pinned Tickers:</span>
+            {customTickers.map((sym) => (
+              <span
+                key={sym}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-semibold bg-indigo-950/60 text-indigo-300 border border-indigo-500/40"
+              >
+                {sym}
+                <button
+                  onClick={() => handleRemoveTicker(sym)}
+                  className="text-indigo-400 hover:text-white leading-none"
+                  aria-label={`Remove ${sym}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Catalyst Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          {['ALL', 'PINNED', 'VOLUME_SURGE', 'OVERSOLD', 'OVERBOUGHT', 'NEWS_CATALYST'].map(
+            (type) => (
               <button
                 key={type}
                 onClick={() => setFilter(type)}
@@ -80,20 +185,18 @@ export default function App() {
               >
                 {type.replace('_', ' ')}
               </button>
-            ))}
-            <button
-              onClick={fetchMarketData}
-              className="ml-2 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200"
-            >
-              ↻ Refresh
-            </button>
-          </div>
-        </header>
+            )
+          )}
+        </div>
 
         {/* Loading State */}
         {loading ? (
           <div className="text-center py-20 text-slate-400 animate-pulse">
-            Scanning technical indicators and news feeds...
+            Scanning live market movers and calculating technical anomalies...
+          </div>
+        ) : filteredStocks.length === 0 ? (
+          <div className="text-center py-16 text-slate-500 border border-dashed border-slate-800 rounded-xl">
+            No stocks currently match the "{filter.replace('_', ' ')}" filter.
           </div>
         ) : (
           /* Dynamic Grid */
@@ -122,6 +225,11 @@ export default function App() {
                           {isPositive ? '+' : ''}
                           {stock.pct_change}%
                         </span>
+                        {stock.is_custom && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                            PINNED
+                          </span>
+                        )}
                       </div>
                       <div className="text-lg font-mono text-slate-200 mt-0.5">
                         ${stock.price.toFixed(2)}
@@ -139,7 +247,9 @@ export default function App() {
                   </div>
 
                   {/* Dynamic Catalyst Badge */}
-                  <div className={`inline-block text-xs px-2.5 py-1 rounded-md border mb-4 ${style.badge}`}>
+                  <div
+                    className={`inline-block text-xs px-2.5 py-1 rounded-md border mb-4 ${style.badge}`}
+                  >
                     {stock.driver_label}
                   </div>
 
@@ -187,7 +297,13 @@ export default function App() {
                       }`}
                     >
                       <span className="font-semibold uppercase text-[10px] tracking-wider block mb-1 opacity-75">
-                        Latest Catalyst ({stock.sentiment > 0 ? 'Bullish' : stock.sentiment < 0 ? 'Bearish' : 'Neutral'})
+                        Latest Catalyst (
+                        {stock.sentiment > 0
+                          ? 'Bullish'
+                          : stock.sentiment < 0
+                          ? 'Bearish'
+                          : 'Neutral'}
+                        )
                       </span>
                       "{stock.top_headline}"
                     </div>
