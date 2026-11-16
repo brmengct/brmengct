@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from src.cuped import compute_cuped_metric
+from ab_testing.cuped import compute_cuped_metric
 
 
 def test_cuped_preserves_mean():
