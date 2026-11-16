@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from src.cuped import analyze_ab_test, compute_cuped_metric
+from ab_testing.cuped import analyze_ab_test, compute_cuped_metric
 
 
 def generate_ab_data(
