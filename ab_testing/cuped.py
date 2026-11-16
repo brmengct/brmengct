@@ -6,16 +6,16 @@ from scipy import stats
 
 @dataclass
 class ExperimentResult:
-    ate_raw: float
-    se_raw: float
+    ate_raw: float #average treatment effect
+    se_raw: float #standard error
     p_value_raw: float
     ci_raw: tuple[float, float]
-    ate_cuped: float
+    ate_cuped: float #after controlling for pre-experiment data
     se_cuped: float
     p_value_cuped: float
     ci_cuped: tuple[float, float]
-    theta: float
-    correlation: float
+    theta: float #slope of regression etween outcome and pre-experiment variance
+    correlation: float #r = cos(theta)
     variance_reduction_pct: float
 
 
