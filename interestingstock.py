@@ -70,7 +70,8 @@ def score_news_sentiment(news_items: List[Dict[str, Any]]) -> tuple[float, str]:
         words = set(title.lower().replace(":", "").replace(",", "").split())
         score += len(words.intersection(BULLISH_WORDS))
         score -= len(words.intersection(BEARISH_WORDS))
-        
+    
+    # Clamped to [-1.0, +1.0]: -1.0 is strongly bearish, 0 is neutral, and +1.0 is strongly bullish.
     normalized = max(-1.0, min(1.0, score / 4.0))
     return round(normalized, 2), top_headline
 
